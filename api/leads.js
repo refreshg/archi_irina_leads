@@ -69,9 +69,14 @@ function defaultYesterday(){
 
 module.exports = async (req, res) => {
   try{
+    const ACCESS_KEY = process.env.ACCESS_KEY || '3377';
     const key = (req.query && req.query.key) || '';
-    if(process.env.ACCESS_KEY && key !== process.env.ACCESS_KEY){
-      return res.status(401).json({ error: 'unauthorized' });
+    if(key !== ACCESS_KEY){
+      return res.status(401).json({ error: 'არასწორი PIN კოდი' });
+    }
+    // lightweight PIN check (used by the login gate) — skip the heavy work
+    if(req.query && req.query.check){
+      return res.status(200).json({ ok: true });
     }
 
     const day  = defaultYesterday();

@@ -37,9 +37,29 @@
   @keyframes spin { to { transform:rotate(360deg); } }
   #msg { padding:14px 24px; color:var(--mut); }
   .err { color:var(--hot); }
+  /* PIN gate */
+  #gate { position:fixed; inset:0; background:var(--bg); display:flex; align-items:center; justify-content:center; z-index:50; }
+  #gate .box { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:28px; width:300px; text-align:center; }
+  #gate h2 { margin:0 0 4px; font-size:18px; }
+  #gate p { margin:0 0 18px; color:var(--mut); font-size:13px; }
+  #pin { width:100%; text-align:center; letter-spacing:8px; font-size:22px; padding:10px; }
+  #gate button { width:100%; margin-top:12px; padding:11px; }
+  #gateErr { color:var(--hot); font-size:13px; min-height:18px; margin-top:10px; }
+  #app { display:none; }
 </style>
 </head>
 <body>
+<div id="gate">
+  <div class="box">
+    <h2>🔒 Archi ლიდები</h2>
+    <p>შეიყვანე PIN კოდი</p>
+    <input type="password" id="pin" inputmode="numeric" maxlength="8" autocomplete="off" placeholder="••••">
+    <button id="gateBtn">შესვლა</button>
+    <div id="gateErr"></div>
+  </div>
+</div>
+
+<div id="app">
 <header>
   <h1>Archi CRM — „ვერ დავუკავშირდი“ ლიდები</h1>
   <div class="sub">დილები, რომლებიც მითითებულ თარიღში გადავიდნენ ეტაპზე „ვერ დავუკავშირდი“ და <b>ახლაც იქ არიან</b> (Sale + Hot). სტრიქონზე დაჭერით — დილი იხსნება CRM-ში.</div>
@@ -48,7 +68,6 @@
 <div class="bar">
   <div class="fld"><label>თარიღიდან</label><input type="date" id="from"></div>
   <div class="fld"><label>თარიღამდე</label><input type="date" id="to"></div>
-  <div class="fld" id="keyFld" style="display:none"><label>Access key</label><input type="password" id="key" placeholder="key"></div>
   <button id="load">ჩატვირთვა</button>
   <button id="export" class="ghost" disabled>⬇ Excel-ში ჩამოტვირთვა</button>
 </div>
@@ -56,6 +75,7 @@
 <div class="stats" id="stats"></div>
 <div id="msg"></div>
 <div class="wrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
+</div><!-- /#app -->
 
 <script>
 const CRM_BASE = 'https://crm.archi.ge';
@@ -88,11 +108,33 @@ function esc(s){ return String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','
 })();
 
 let currentRows = [];
+let PIN = sessionStorage.getItem('archi_pin') || '';
+
+// ---- PIN gate ----
+async function tryPin(){
+  const pin = document.getElementById('pin').value.trim();
+  const errEl = document.getElementById('gateErr');
+  if(!pin){ errEl.textContent = 'შეიყვანე PIN'; return; }
+  errEl.textContent = 'მოწმდება…';
+  try{
+    const u = new URL('/api/leads', location.origin);
+    u.searchParams.set('check','1'); u.searchParams.set('key', pin);
+    const r = await fetch(u);
+    if(r.ok){
+      PIN = pin; sessionStorage.setItem('archi_pin', pin);
+      document.getElementById('gate').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+    } else {
+      const d = await r.json().catch(()=>({}));
+      errEl.textContent = d.error || 'არასწორი PIN კოდი';
+    }
+  }catch(e){ errEl.textContent = 'შეცდომა: '+(e.message||e); }
+}
 
 async function load(){
   const from = document.getElementById('from').value;
   const to   = document.getElementById('to').value;
-  const key  = document.getElementById('key').value || '';
+  const key  = PIN;
   if(!from || !to){ msg('აირჩიე თარიღები','err'); return; }
 
   const btn = document.getElementById('load');
@@ -108,6 +150,13 @@ async function load(){
     const r = await fetch(u);
     const data = await r.json();
     clearInterval(secTimer);
+    if(r.status === 401){
+      sessionStorage.removeItem('archi_pin'); PIN='';
+      document.getElementById('app').style.display='none';
+      document.getElementById('gate').style.display='flex';
+      document.getElementById('gateErr').textContent = 'PIN ვადაგასულია — შეიყვანე ხელახლა';
+      return;
+    }
     if(!r.ok || data.error){ msg('შეცდომა: '+esc(data.error||r.status), 'err'); return; }
     currentRows = data.rows || [];
     render(data);
@@ -160,6 +209,20 @@ function msg(html, cls){ const m=document.getElementById('msg'); m.className = c
 
 document.getElementById('load').addEventListener('click', load);
 document.getElementById('export').addEventListener('click', exportXlsx);
+document.getElementById('gateBtn').addEventListener('click', tryPin);
+document.getElementById('pin').addEventListener('keydown', e => { if(e.key==='Enter') tryPin(); });
+
+// if a valid PIN is already stored this session, skip the gate
+(async function initGate(){
+  if(!PIN){ document.getElementById('pin').focus(); return; }
+  try{
+    const u = new URL('/api/leads', location.origin);
+    u.searchParams.set('check','1'); u.searchParams.set('key', PIN);
+    const r = await fetch(u);
+    if(r.ok){ document.getElementById('gate').style.display='none'; document.getElementById('app').style.display='block'; }
+    else { sessionStorage.removeItem('archi_pin'); PIN=''; document.getElementById('pin').focus(); }
+  }catch(e){ document.getElementById('pin').focus(); }
+})();
 
 // click a row -> open the deal in CRM (ignore clicks on the inner link)
 document.querySelector('#tbl tbody').addEventListener('click', (e) => {
