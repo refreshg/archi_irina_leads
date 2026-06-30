@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($ErrorActionPreference='Stop'; python --version; Write-Output '---'; \\(Get-Command python\\).Source)",
+      "PowerShell(& 'c:\\\\Users\\\\dchac\\\\Desktop\\\\vs code\\\\archi_irina_leads\\\\archi_leads_export.ps1')",
+      "PowerShell(Import-Csv $csv -Encoding UTF8)",
+      "PowerShell($csv='c:\\\\Users\\\\dchac\\\\Desktop\\\\vs code\\\\archi_irina_leads\\\\archi_ver_davukavshirdi_2026-06-29.csv')",
+      "PowerShell(git init -b main)",
+      "PowerShell(git config user.email \"dchachkhuna@gmail.com\")",
+      "PowerShell(git config user.name \"dchachkhuna\")",
+      "PowerShell(git add -A)",
+      "PowerShell(git -c core.quotepath=false status --short)",
+      "PowerShell(git remote add origin https://github.com/refreshg/archi_irina_leads.git)",
+      "PowerShell('--- commit ---')",
+      "PowerShell('--- remote ---')",
+      "PowerShell('--- branch ---')"
+    ]
+  }
+}
