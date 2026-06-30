@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Archi — ვერ დავუკავშირდი ლიდები</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --line:#334155; --txt:#e2e8f0; --mut:#94a3b8; --acc:#38bdf8; --hot:#f87171; --sale:#34d399; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,Arial,sans-serif; background:var(--bg); color:var(--txt); }
+  header { padding:20px 24px; border-bottom:1px solid var(--line); }
+  h1 { margin:0; font-size:20px; }
+  .sub { color:var(--mut); font-size:13px; margin-top:4px; }
+  .bar { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; padding:18px 24px; background:var(--card); border-bottom:1px solid var(--line); }
+  .fld { display:flex; flex-direction:column; gap:4px; }
+  .fld label { font-size:12px; color:var(--mut); }
+  input { background:#0b1220; border:1px solid var(--line); color:var(--txt); padding:8px 10px; border-radius:8px; font-size:14px; }
+  button { background:var(--acc); color:#06283d; border:none; padding:9px 16px; border-radius:8px; font-weight:600; cursor:pointer; font-size:14px; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  button.ghost { background:transparent; color:var(--acc); border:1px solid var(--acc); }
+  .stats { padding:12px 24px; display:flex; gap:18px; flex-wrap:wrap; font-size:14px; color:var(--mut); }
+  .pill { padding:2px 10px; border-radius:999px; font-size:12px; font-weight:700; }
+  .pill.Hot { background:rgba(248,113,113,.15); color:var(--hot); }
+  .pill.Sale { background:rgba(52,211,153,.15); color:var(--sale); }
+  .wrap { padding:0 24px 40px; overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th,td { border-bottom:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { position:sticky; top:0; background:var(--bg); color:var(--mut); font-weight:600; white-space:nowrap; }
+  td.cmt { max-width:340px; }
+  .muted { color:var(--mut); }
+  .spinner { display:inline-block; width:16px; height:16px; border:2px solid var(--mut); border-top-color:var(--acc); border-radius:50%; animation:spin .8s linear infinite; vertical-align:middle; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  #msg { padding:14px 24px; color:var(--mut); }
+  .err { color:var(--hot); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Archi CRM — „ვერ დავუკავშირდი“ ლიდები</h1>
+  <div class="sub">დილები, რომლებიც მითითებულ თარიღში გადავიდნენ ეტაპზე „ვერ დავუკავშირდი“ (Sale + Hot პაიფლაინი)</div>
+</header>
+
+<div class="bar">
+  <div class="fld"><label>თარიღიდან</label><input type="date" id="from"></div>
+  <div class="fld"><label>თარიღამდე</label><input type="date" id="to"></div>
+  <div class="fld" id="keyFld" style="display:none"><label>Access key</label><input type="password" id="key" placeholder="key"></div>
+  <button id="load">ჩატვირთვა</button>
+  <button id="export" class="ghost" disabled>⬇ Excel-ში ჩამოტვირთვა</button>
+</div>
+
+<div class="stats" id="stats"></div>
+<div id="msg"></div>
+<div class="wrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
+
+<script>
+const COLS = [
+  ['type','ტიპი'],
+  ['client','კლიენტი'],
+  ['phone','ტელეფონი'],
+  ['fbName','FB Name (კამპანია)'],
+  ['pipeline','პაიფლაინი'],
+  ['created','შექმნის თარიღი'],
+  ['movedTime','ვერ დავუკავშირდი-ზე გადასვლა'],
+  ['currentStage','ამჟამინდელი ეტაპი'],
+  ['lastComment','ბოლო კომენტარი'],
+  ['commentDate','კომენტარის თარიღი'],
+  ['dealId','Deal ID'],
+];
+
+function pad(n){ return String(n).padStart(2,'0'); }
+function ymd(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+function fmt(iso){ if(!iso) return ''; const d=new Date(iso); if(isNaN(d)) return iso; return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+' '+pad(d.getHours())+':'+pad(d.getMinutes()); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+// default = yesterday
+(function(){
+  const y = new Date(Date.now()-86400000);
+  document.getElementById('from').value = ymd(y);
+  document.getElementById('to').value   = ymd(y);
+})();
+
+let currentRows = [];
+
+async function load(){
+  const from = document.getElementById('from').value;
+  const to   = document.getElementById('to').value;
+  const key  = document.getElementById('key').value || '';
+  if(!from || !to){ msg('აირჩიე თარიღები','err'); return; }
+
+  const btn = document.getElementById('load');
+  btn.disabled = true; document.getElementById('export').disabled = true;
+  const t0 = Date.now();
+  let secTimer = setInterval(()=>{ msg('<span class="spinner"></span> იტვირთება CRM-დან… '+Math.round((Date.now()-t0)/1000)+'წმ (stagehistory → დილები → კლიენტები → კომენტარები)'); }, 250);
+
+  try{
+    const u = new URL('/api/leads', location.origin);
+    u.searchParams.set('from', from+'T00:00:00');
+    u.searchParams.set('to',   to+'T23:59:59');
+    if(key) u.searchParams.set('key', key);
+    const r = await fetch(u);
+    const data = await r.json();
+    clearInterval(secTimer);
+    if(!r.ok || data.error){ msg('შეცდომა: '+esc(data.error||r.status), 'err'); return; }
+    currentRows = data.rows || [];
+    render(data);
+    msg(`✅ ჩაიტვირთა ${data.count} ლიდი ${Math.round((Date.now()-t0)/1000)}წმ-ში — დიაპაზონი: ${esc(data.from)} → ${esc(data.to)}`);
+    document.getElementById('export').disabled = currentRows.length===0;
+  }catch(e){
+    clearInterval(secTimer);
+    msg('შეცდომა: '+esc(e.message||e), 'err');
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+function render(data){
+  const thead = document.querySelector('#tbl thead');
+  const tbody = document.querySelector('#tbl tbody');
+  thead.innerHTML = '<tr>'+COLS.map(c=>`<th>${esc(c[1])}</th>`).join('')+'</tr>';
+  tbody.innerHTML = currentRows.map(row => '<tr>'+COLS.map(([k])=>{
+    let v = row[k];
+    if(k==='created'||k==='movedTime'||k==='commentDate') v = fmt(v);
+    if(k==='type') return `<td><span class="pill ${esc(v)}">${esc(v)}</span></td>`;
+    if(k==='lastComment') return `<td class="cmt">${esc(v)}</td>`;
+    return `<td>${esc(v)}</td>`;
+  }).join('')+'</tr>').join('');
+
+  document.getElementById('stats').innerHTML =
+    `<div>სულ: <b style="color:var(--txt)">${data.count}</b></div>`+
+    `<div><span class="pill Sale">Sale</span> ${data.sale}</div>`+
+    `<div><span class="pill Hot">Hot</span> ${data.hot}</div>`;
+}
+
+function exportXlsx(){
+  if(!currentRows.length) return;
+  const aoa = [ COLS.map(c=>c[1]) ];
+  currentRows.forEach(row => aoa.push(COLS.map(([k])=>{
+    let v = row[k];
+    if(k==='created'||k==='movedTime'||k==='commentDate') v = fmt(v);
+    return v==null ? '' : v;
+  })));
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = COLS.map((c,i)=>({wch: i===8?40:18}));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'ვერ დავუკავშირდი');
+  const from = document.getElementById('from').value;
+  XLSX.writeFile(wb, `archi_ver_davukavshirdi_${from}.xlsx`);
+}
+
+function msg(html, cls){ const m=document.getElementById('msg'); m.className = cls||''; m.innerHTML = html; }
+
+document.getElementById('load').addEventListener('click', load);
+document.getElementById('export').addEventListener('click', exportXlsx);
+</script>
+</body>
+</html>

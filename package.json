@@ -1,0 +1,6 @@
+{
+  "name": "archi-irina-leads-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Web app to export Archi CRM 'ვერ დავუკავშირდი' leads (Vercel + serverless API)"
+}

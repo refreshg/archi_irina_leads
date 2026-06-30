@@ -2,6 +2,17 @@
 
 Archi CRM (Bitrix24) — export of leads that entered the **"ვერ დავუკავშირდი"** (couldn't-contact) stage.
 
+Two ways to use it:
+- **Web app (Vercel)** — open the deployed URL, pick a date range (defaults to yesterday), view the leads table and download Excel. Frontend: `public/index.html`; serverless API: `api/leads.js`.
+- **PowerShell script** — run `archi_leads_export.ps1` locally (see below).
+
+## Deploy (Vercel)
+Import this repo into Vercel — zero config (static `public/` + `api/` serverless function). The root URL serves the page; the page calls `/api/leads`.
+
+Optional environment variables (Vercel → Settings → Environment Variables):
+- `BX_DEAL`, `BX_STATUS`, `BX_TIMELINE` — override the Bitrix webhook base URLs.
+- `ACCESS_KEY` — if set, the API requires `?key=...` (the page has an "Access key" field). **Recommended**, since `/api/leads` otherwise returns client PII to anyone with the URL.
+
 ## What it does
 `archi_leads_export.ps1` pulls deals from two pipelines and filters them by the date they **moved into** the "ვერ დავუკავშირდი" stage (using `crm.stagehistory.list`):
 
