@@ -163,8 +163,11 @@ module.exports = async (req, res) => {
       });
     }));
 
-    // 6) build rows
-    const rows = Object.keys(deals).sort((a,b)=>(+a)-(+b)).map(id => {
+    // 6) build rows — keep ONLY deals whose CURRENT stage is still "ვერ დავუკავშირდი"
+    const TARGET_STAGES = new Set(['7','C35:FINAL_INVOICE']);
+    const rows = Object.keys(deals)
+      .filter(id => TARGET_STAGES.has(String(deals[id].STAGE_ID)))
+      .sort((a,b)=>(+a)-(+b)).map(id => {
       const d = deals[id];
       let client='', phone='';
       if(d.CONTACT_ID && contacts[String(d.CONTACT_ID)]){ client=contacts[String(d.CONTACT_ID)].name; phone=contacts[String(d.CONTACT_ID)].phone; }

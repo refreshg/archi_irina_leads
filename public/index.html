@@ -28,6 +28,10 @@
   th,td { border-bottom:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top; }
   th { position:sticky; top:0; background:var(--bg); color:var(--mut); font-weight:600; white-space:nowrap; }
   td.cmt { max-width:340px; }
+  tbody tr { cursor:pointer; }
+  tbody tr:hover { background:#243044; }
+  td a { color:var(--acc); text-decoration:none; }
+  td a:hover { text-decoration:underline; }
   .muted { color:var(--mut); }
   .spinner { display:inline-block; width:16px; height:16px; border:2px solid var(--mut); border-top-color:var(--acc); border-radius:50%; animation:spin .8s linear infinite; vertical-align:middle; }
   @keyframes spin { to { transform:rotate(360deg); } }
@@ -38,7 +42,7 @@
 <body>
 <header>
   <h1>Archi CRM — „ვერ დავუკავშირდი“ ლიდები</h1>
-  <div class="sub">დილები, რომლებიც მითითებულ თარიღში გადავიდნენ ეტაპზე „ვერ დავუკავშირდი“ (Sale + Hot პაიფლაინი)</div>
+  <div class="sub">დილები, რომლებიც მითითებულ თარიღში გადავიდნენ ეტაპზე „ვერ დავუკავშირდი“ და <b>ახლაც იქ არიან</b> (Sale + Hot). სტრიქონზე დაჭერით — დილი იხსნება CRM-ში.</div>
 </header>
 
 <div class="bar">
@@ -54,6 +58,9 @@
 <div class="wrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
 
 <script>
+const CRM_BASE = 'https://crm.archi.ge';
+const dealUrl = id => `${CRM_BASE}/crm/deal/details/${id}/`;
+
 const COLS = [
   ['type','ტიპი'],
   ['client','კლიენტი'],
@@ -118,11 +125,12 @@ function render(data){
   const thead = document.querySelector('#tbl thead');
   const tbody = document.querySelector('#tbl tbody');
   thead.innerHTML = '<tr>'+COLS.map(c=>`<th>${esc(c[1])}</th>`).join('')+'</tr>';
-  tbody.innerHTML = currentRows.map(row => '<tr>'+COLS.map(([k])=>{
+  tbody.innerHTML = currentRows.map(row => `<tr data-id="${esc(row.dealId)}" title="დააჭირე — დილი გაიხსნება CRM-ში">`+COLS.map(([k])=>{
     let v = row[k];
     if(k==='created'||k==='movedTime'||k==='commentDate') v = fmt(v);
     if(k==='type') return `<td><span class="pill ${esc(v)}">${esc(v)}</span></td>`;
     if(k==='lastComment') return `<td class="cmt">${esc(v)}</td>`;
+    if(k==='dealId') return `<td><a href="${esc(dealUrl(v))}" target="_blank" rel="noopener">${esc(v)} ↗</a></td>`;
     return `<td>${esc(v)}</td>`;
   }).join('')+'</tr>').join('');
 
@@ -152,6 +160,13 @@ function msg(html, cls){ const m=document.getElementById('msg'); m.className = c
 
 document.getElementById('load').addEventListener('click', load);
 document.getElementById('export').addEventListener('click', exportXlsx);
+
+// click a row -> open the deal in CRM (ignore clicks on the inner link)
+document.querySelector('#tbl tbody').addEventListener('click', (e) => {
+  if(e.target.closest('a')) return;
+  const tr = e.target.closest('tr[data-id]');
+  if(tr) window.open(dealUrl(tr.dataset.id), '_blank', 'noopener');
+});
 </script>
 </body>
 </html>
