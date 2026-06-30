@@ -13,7 +13,10 @@
       "PowerShell(git remote add origin https://github.com/refreshg/archi_irina_leads.git)",
       "PowerShell('--- commit ---')",
       "PowerShell('--- remote ---')",
-      "PowerShell('--- branch ---')"
+      "PowerShell('--- branch ---')",
+      "PowerShell(git commit -F \"C:\\\\Users\\\\dchac\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-dchac-Desktop-vs-code-archi-irina-leads\\\\e1647f49-6d60-4063-b4b8-479b553499a0\\\\scratchpad\\\\commitmsg.txt\")",
+      "PowerShell('--- log ---')",
+      "PowerShell('--- status ---')"
     ]
   }
 }
