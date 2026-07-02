@@ -12,6 +12,7 @@ const TL   = process.env.BX_TIMELINE || 'https://crm.archi.ge/rest/1/nfy7m5s80ad
 const TARGETS = [
   { type: 'Sale', pipeline: '0 (Sale Leads)', categoryId: '0',  stageId: '7' },
   { type: 'Hot',  pipeline: '35 (Hot Leads)', categoryId: '35', stageId: 'C35:FINAL_INVOICE' },
+  { type: 'Hot',  pipeline: '35 (Hot Leads)', categoryId: '35', stageId: 'C35:17' }, // ვერშედგა კონტაქტი
 ];
 const STAGE_ENTITIES = ['DEAL_STAGE', 'DEAL_STAGE_35'];
 const DEAL_SELECT = ['ID','TITLE','CATEGORY_ID','STAGE_ID','DATE_CREATE','CONTACT_ID','COMPANY_ID','UF_CRM_1700569256804'];
@@ -169,7 +170,7 @@ module.exports = async (req, res) => {
     }));
 
     // 6) build rows — keep ONLY deals whose CURRENT stage is still "ვერ დავუკავშირდი"
-    const TARGET_STAGES = new Set(['7','C35:FINAL_INVOICE']);
+    const TARGET_STAGES = new Set(['7','C35:FINAL_INVOICE','C35:17']);
     const rows = Object.keys(deals)
       .filter(id => TARGET_STAGES.has(String(deals[id].STAGE_ID)))
       .sort((a,b)=>(+a)-(+b)).map(id => {
