@@ -146,53 +146,106 @@ async function tryPin(){
   }catch(e){ errEl.textContent = 'შეცდომა: '+(e.message||e); }
 }
 
+const MAX_DAYS = 100;
+
+// run `worker` over items with bounded concurrency
+async function pool(items, limit, worker){
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while(i < items.length){ const idx = i++; await worker(items[idx]); }
+  }));
+}
+
+function daysBetween(a, b){
+  const out = [], d = new Date(a+'T00:00:00'), e = new Date(b+'T00:00:00');
+  if(isNaN(d) || isNaN(e) || d > e) return out;
+  for(let x = new Date(d); x <= e; x.setDate(x.getDate()+1)) out.push(ymd(x));
+  return out;
+}
+
+// fetch ONE day; returns {rows} or {error} or {unauthorized:true}
+async function fetchDay(day){
+  const u = new URL('/api/leads', location.origin);
+  u.searchParams.set('from', day+'T00:00:00');
+  u.searchParams.set('to',   day+'T23:59:59');
+  u.searchParams.set('report', REPORT);
+  if(PIN) u.searchParams.set('key', PIN);
+
+  const r = await fetch(u);
+  const raw = await r.text();
+  let data = null;
+  try { data = JSON.parse(raw); } catch(_) { /* non-JSON error page */ }
+
+  if(r.status === 401) return { unauthorized:true };
+  if(!data){
+    let m = `HTTP ${r.status}`;
+    if(r.status === 504 || r.status === 502 || /timed? ?out/i.test(raw)) m += ' (timeout)';
+    return { error:`${day}: ${m}` };
+  }
+  if(!r.ok || data.error) return { error:`${day}: ${data.error || ('HTTP '+r.status)}` };
+  return { rows: data.rows || [] };
+}
+
 async function load(){
   const from = document.getElementById('from').value;
   const to   = document.getElementById('to').value;
-  const key  = PIN;
   if(!from || !to){ msg('აირჩიე თარიღები','err'); return; }
+
+  const days = daysBetween(from, to);
+  if(days.length === 0){ msg('„თარიღიდან“ უნდა იყოს „თარიღამდე“-ზე ადრე','err'); return; }
+  if(days.length > MAX_DAYS){ msg(`დიაპაზონი ძალიან დიდია (${days.length} დღე). მაქსიმუმი ${MAX_DAYS} დღე.`,'err'); return; }
 
   clearResults(); // don't leave stale stats/rows next to an error
   const btn = document.getElementById('load');
   btn.disabled = true; document.getElementById('export').disabled = true;
   const t0 = Date.now();
-  let secTimer = setInterval(()=>{ msg('<span class="spinner"></span> იტვირთება CRM-დან… '+Math.round((Date.now()-t0)/1000)+'წმ (stagehistory → დილები → კლიენტები → კომენტარები)'); }, 250);
+
+  // the range is split per-day so each request stays small (no serverless timeout)
+  const byId = new Map();   // dealId -> row (keep the latest movedTime)
+  const errors = [];
+  let done = 0, unauthorized = false;
+
+  const progress = () => msg(`<span class="spinner"></span> იტვირთება… დღე <b>${done}/${days.length}</b> · ნაპოვნია <b>${byId.size}</b> ლიდი · ${Math.round((Date.now()-t0)/1000)}წმ`);
+  progress();
 
   try{
-    const u = new URL('/api/leads', location.origin);
-    u.searchParams.set('from', from+'T00:00:00');
-    u.searchParams.set('to',   to+'T23:59:59');
-    u.searchParams.set('report', REPORT);
-    if(key) u.searchParams.set('key', key);
-    const r = await fetch(u);
-    const raw = await r.text();
-    let data = null;
-    try { data = JSON.parse(raw); } catch(_) { /* server returned a non-JSON error page */ }
-    clearInterval(secTimer);
+    await pool(days, 3, async (day) => {
+      if(unauthorized) return;
+      try{
+        const res = await fetchDay(day);
+        if(res.unauthorized){ unauthorized = true; return; }
+        if(res.error){ errors.push(res.error); }
+        else for(const row of res.rows){
+          const prev = byId.get(row.dealId);
+          if(!prev || new Date(row.movedTime) > new Date(prev.movedTime)) byId.set(row.dealId, row);
+        }
+      }catch(e){ errors.push(`${day}: ${e.message||e}`); }
+      done++; progress();
+    });
 
-    if(r.status === 401){
+    if(unauthorized){
       sessionStorage.removeItem('archi_pin'); PIN='';
       document.getElementById('app').style.display='none';
       document.getElementById('gate').style.display='flex';
       document.getElementById('gateErr').textContent = 'PIN ვადაგასულია — შეიყვანე ხელახლა';
       return;
     }
-    if(!data){
-      // Vercel/proxy error page (timeout, crash) — not JSON
-      let m = `სერვერის შეცდომა (HTTP ${r.status})`;
-      if(r.status === 504 || r.status === 502 || /timed? ?out/i.test(raw))
-        m += ' — ფუნქციამ დროის ლიმიტს გადააჭარბა. შეამცირე თარიღის დიაპაზონი და სცადე ხელახლა.';
-      else m += ` — ${raw.slice(0,120)}`;
-      msg('შეცდომა: '+esc(m), 'err');
+
+    currentRows = [...byId.values()].sort((a,b)=>(+a.dealId)-(+b.dealId));
+    const sale = currentRows.filter(r=>r.type==='Sale').length;
+    const hot  = currentRows.filter(r=>r.type==='Hot').length;
+
+    if(currentRows.length === 0 && errors.length){
+      msg('შეცდომა: '+esc(errors[0]), 'err');
       return;
     }
-    if(!r.ok || data.error){ msg('შეცდომა: '+esc(data.error || ('HTTP '+r.status)), 'err'); return; }
-    currentRows = data.rows || [];
-    render(data);
-    msg(`✅ ჩაიტვირთა ${data.count} ლიდი ${Math.round((Date.now()-t0)/1000)}წმ-ში — დიაპაზონი: ${esc(data.from)} → ${esc(data.to)}`);
+    render({ count: currentRows.length, sale, hot });
+    const secs = Math.round((Date.now()-t0)/1000);
+    let m = `✅ ჩაიტვირთა ${currentRows.length} ლიდი ${secs}წმ-ში — ${esc(from)} → ${esc(to)} (${days.length} დღე)`;
+    if(errors.length) m += ` <span class="err">· ${errors.length} დღე ვერ ჩაიტვირთა: ${esc(errors[0])}</span>`;
+    msg(m);
     document.getElementById('export').disabled = currentRows.length===0;
   }catch(e){
-    clearInterval(secTimer);
     msg('შეცდომა: '+esc(e.message||e), 'err');
   }finally{
     btn.disabled = false;
