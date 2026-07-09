@@ -152,6 +152,7 @@ async function load(){
   const key  = PIN;
   if(!from || !to){ msg('აირჩიე თარიღები','err'); return; }
 
+  clearResults(); // don't leave stale stats/rows next to an error
   const btn = document.getElementById('load');
   btn.disabled = true; document.getElementById('export').disabled = true;
   const t0 = Date.now();
@@ -164,8 +165,11 @@ async function load(){
     u.searchParams.set('report', REPORT);
     if(key) u.searchParams.set('key', key);
     const r = await fetch(u);
-    const data = await r.json();
+    const raw = await r.text();
+    let data = null;
+    try { data = JSON.parse(raw); } catch(_) { /* server returned a non-JSON error page */ }
     clearInterval(secTimer);
+
     if(r.status === 401){
       sessionStorage.removeItem('archi_pin'); PIN='';
       document.getElementById('app').style.display='none';
@@ -173,7 +177,16 @@ async function load(){
       document.getElementById('gateErr').textContent = 'PIN ვადაგასულია — შეიყვანე ხელახლა';
       return;
     }
-    if(!r.ok || data.error){ msg('შეცდომა: '+esc(data.error||r.status), 'err'); return; }
+    if(!data){
+      // Vercel/proxy error page (timeout, crash) — not JSON
+      let m = `სერვერის შეცდომა (HTTP ${r.status})`;
+      if(r.status === 504 || r.status === 502 || /timed? ?out/i.test(raw))
+        m += ' — ფუნქციამ დროის ლიმიტს გადააჭარბა. შეამცირე თარიღის დიაპაზონი და სცადე ხელახლა.';
+      else m += ` — ${raw.slice(0,120)}`;
+      msg('შეცდომა: '+esc(m), 'err');
+      return;
+    }
+    if(!r.ok || data.error){ msg('შეცდომა: '+esc(data.error || ('HTTP '+r.status)), 'err'); return; }
     currentRows = data.rows || [];
     render(data);
     msg(`✅ ჩაიტვირთა ${data.count} ლიდი ${Math.round((Date.now()-t0)/1000)}წმ-ში — დიაპაზონი: ${esc(data.from)} → ${esc(data.to)}`);

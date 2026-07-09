@@ -53,6 +53,14 @@ async function call(base, method, payload){
 }
 async function batch(base, cmds){ const j = await call(base,'batch',{halt:0,cmd:cmds}); return j.result; }
 
+// run `worker` over items with bounded concurrency (avoids hammering Bitrix / timing out)
+async function pool(items, limit, worker){
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while(i < items.length){ const idx = i++; await worker(items[idx]); }
+  }));
+}
+
 // stagehistory returns result.items (not a plain array) and supports start/total
 async function stageHistAll(payload){
   const out=[]; let start=0, total=0;
@@ -115,7 +123,25 @@ module.exports = async (req, res) => {
       return stageName[`${ent}|${stage}`] || stage;
     };
 
-    // 2) who entered the target stage in range (date filter basis)
+    // 2a) pre-flight: cheap count first (1 call per stage) so a too-wide range
+    //     fails fast with a clear message instead of timing out mid-pagination.
+    const MAX_MOVES = 2000;
+    let totalMoves = 0;
+    for(const t of rep.targets){
+      const j = await call(DEAL,'crm.stagehistory.list',{
+        entityTypeId: 2,
+        filter: { CATEGORY_ID: t.categoryId, STAGE_ID: t.stageId, '>=CREATED_TIME': from, '<=CREATED_TIME': to },
+        start: 0
+      });
+      totalMoves += parseInt(j.total || 0, 10);
+    }
+    if(totalMoves > MAX_MOVES){
+      return res.status(400).json({
+        error: `თარიღის დიაპაზონი ძალიან ფართოა (${totalMoves} გადასვლა). შეამცირე დიაპაზონი (მაქსიმუმი ${MAX_MOVES}).`
+      });
+    }
+
+    // 2b) who entered the target stage in range (date filter basis)
     const moved = {};
     for(const t of rep.targets){
       const items = await stageHistAll({
@@ -132,6 +158,13 @@ module.exports = async (req, res) => {
     const dealIds = Object.keys(moved);
     if(dealIds.length === 0){
       return res.status(200).json({ report:reportKey, label:rep.label, from, to, count:0, hot:0, sale:0, rows:[] });
+    }
+    // guard: too wide a range would exceed the function time limit -> fail with a clear JSON error
+    const MAX_DEALS = 1500;
+    if(dealIds.length > MAX_DEALS){
+      return res.status(400).json({
+        error: `ძალიან ბევრი ლიდი (${dealIds.length}) — შეამცირე თარიღის დიაპაზონი (მაქსიმუმი ${MAX_DEALS}).`
+      });
     }
 
     // 3) deal details (current stage / client refs / create date) — batched
@@ -173,7 +206,7 @@ module.exports = async (req, res) => {
 
     // 5) last timeline comment per deal — batched, in parallel
     const lastComment = {};
-    await Promise.all(chunk(Object.keys(deals),50).map(async (ch) => {
+    await pool(chunk(Object.keys(deals),50), 4, async (ch) => {
       const cmds = {};
       ch.forEach(id => cmds['k'+id] = 'crm.timeline.comment.list?' + qs({
         'filter[ENTITY_TYPE]':'deal','filter[ENTITY_ID]':id,'order[CREATED]':'DESC','select[0]':'COMMENT','select[1]':'CREATED'
@@ -187,7 +220,7 @@ module.exports = async (req, res) => {
           lastComment[id] = { text:txt, when:c.CREATED };
         }
       });
-    }));
+    });
 
     // 6) build rows — keep ONLY deals whose CURRENT stage is still one of this report's stages
     const TARGET_STAGES = new Set(rep.currentStages);
