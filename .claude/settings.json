@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e ' *)",
+      "Bash(node --check __TRACKED_VAR__/inline.js)",
+      "Bash(node --check api/leads.js)",
+      "PowerShell(git add api/leads.js public/index.html)",
+      "PowerShell(git -c core.quotepath=false status --short)",
+      "PowerShell(git commit -F \"C:\\\\Users\\\\dchac\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-dchac-Desktop-vs-code-archi-irina-leads\\\\e1647f49-6d60-4063-b4b8-479b553499a0\\\\scratchpad\\\\commitmsg6.txt\")",
+      "PowerShell(git push origin main 2>&1)",
+      "PowerShell(git rev-list --left-right --count main...origin/main)",
+      "PowerShell('--- push ---')",
+      "PowerShell('--- sync ---')",
+      "PowerShell(git push https://refreshg@github.com/refreshg/archi_irina_leads.git main 2>&1)",
+      "PowerShell(git fetch origin 2>&1)",
+      "PowerShell('--- exit ---')",
+      "PowerShell($LASTEXITCODE)",
+      "PowerShell(git add -A)",
+      "PowerShell(git commit -m \"Update local Claude settings\")",
+      "PowerShell('--- staged ---')",
+      "PowerShell('--- final ---')"
+    ]
+  }
+}
