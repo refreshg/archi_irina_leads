@@ -46,6 +46,11 @@
   #gate button { width:100%; margin-top:12px; padding:11px; }
   #gateErr { color:var(--hot); font-size:13px; min-height:18px; margin-top:10px; }
   #app { display:none; }
+  /* tabs */
+  .tabs { display:flex; gap:4px; padding:0 24px; background:var(--card); border-bottom:1px solid var(--line); }
+  .tab { padding:13px 20px; cursor:pointer; color:var(--mut); border-bottom:2px solid transparent; font-weight:600; font-size:14px; user-select:none; }
+  .tab:hover { color:var(--txt); }
+  .tab.active { color:var(--acc); border-bottom-color:var(--acc); }
 </style>
 </head>
 <body>
@@ -61,9 +66,14 @@
 
 <div id="app">
 <header>
-  <h1>Archi CRM — „ვერ დავუკავშირდი“ ლიდები</h1>
-  <div class="sub">დილები, რომლებიც მითითებულ თარიღში გადავიდნენ ეტაპზე „ვერ დავუკავშირდი“ და <b>ახლაც იქ არიან</b> (Sale + Hot). სტრიქონზე დაჭერით — დილი იხსნება CRM-ში.</div>
+  <h1 id="title">Archi CRM — „ვერ დავუკავშირდი“ ლიდები</h1>
+  <div class="sub" id="sub">დილები, რომლებიც მითითებულ თარიღში გადავიდნენ ეტაპზე „ვერ დავუკავშირდი“ და <b>ახლაც იქ არიან</b> (Sale + Hot). სტრიქონზე დაჭერით — დილი იხსნება CRM-ში.</div>
 </header>
+
+<div class="tabs">
+  <div class="tab active" data-report="nocontact">ვერ დავუკავშირდი</div>
+  <div class="tab" data-report="interested">დაინტერესებული</div>
+</div>
 
 <div class="bar">
   <div class="fld"><label>თარიღიდან</label><input type="date" id="from"></div>
@@ -109,6 +119,11 @@ function esc(s){ return String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','
 
 let currentRows = [];
 let PIN = sessionStorage.getItem('archi_pin') || '';
+let REPORT = 'nocontact';
+const REPORT_META = {
+  nocontact:  { label:'ვერ დავუკავშირდი', file:'ver_davukavshirdi' },
+  interested: { label:'დაინტერესებული',   file:'dainteresebuli' },
+};
 
 // ---- PIN gate ----
 async function tryPin(){
@@ -146,6 +161,7 @@ async function load(){
     const u = new URL('/api/leads', location.origin);
     u.searchParams.set('from', from+'T00:00:00');
     u.searchParams.set('to',   to+'T23:59:59');
+    u.searchParams.set('report', REPORT);
     if(key) u.searchParams.set('key', key);
     const r = await fetch(u);
     const data = await r.json();
@@ -200,12 +216,38 @@ function exportXlsx(){
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = COLS.map((c,i)=>({wch: i===8?40:18}));
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'ვერ დავუკავშირდი');
+  const meta = REPORT_META[REPORT];
+  XLSX.utils.book_append_sheet(wb, ws, meta.label);
   const from = document.getElementById('from').value;
-  XLSX.writeFile(wb, `archi_ver_davukavshirdi_${from}.xlsx`);
+  XLSX.writeFile(wb, `archi_${meta.file}_${from}.xlsx`);
 }
 
 function msg(html, cls){ const m=document.getElementById('msg'); m.className = cls||''; m.innerHTML = html; }
+
+// ---- tabs ----
+function clearResults(){
+  currentRows = [];
+  document.querySelector('#tbl thead').innerHTML = '';
+  document.querySelector('#tbl tbody').innerHTML = '';
+  document.getElementById('stats').innerHTML = '';
+  document.getElementById('export').disabled = true;
+  msg('');
+}
+function applyReport(){
+  const label = REPORT_META[REPORT].label;
+  document.getElementById('title').textContent = `Archi CRM — „${label}“ ლიდები`;
+  document.getElementById('sub').innerHTML =
+    `დილები, რომლებიც მითითებულ თარიღში გადავიდნენ ეტაპზე „${label}“ და <b>ახლაც იქ არიან</b> (Sale + Hot). სტრიქონზე დაჭერით — დილი იხსნება CRM-ში.`;
+}
+document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
+  if(tab.classList.contains('active')) return;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  REPORT = tab.dataset.report;
+  applyReport();
+  clearResults();
+  load();
+}));
 
 document.getElementById('load').addEventListener('click', load);
 document.getElementById('export').addEventListener('click', exportXlsx);

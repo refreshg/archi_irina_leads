@@ -9,11 +9,26 @@ const DEAL = process.env.BX_DEAL     || 'https://crm.archi.ge/rest/1/xmbjzulaie0
 const STAT = process.env.BX_STATUS   || 'https://crm.archi.ge/rest/1/yp0n11acdy148v1g/';
 const TL   = process.env.BX_TIMELINE || 'https://crm.archi.ge/rest/1/nfy7m5s80ado9vi7/';
 
-const TARGETS = [
-  { type: 'Sale', pipeline: '0 (Sale Leads)', categoryId: '0',  stageId: '7' },
-  { type: 'Hot',  pipeline: '35 (Hot Leads)', categoryId: '35', stageId: 'C35:FINAL_INVOICE' },
-  { type: 'Hot',  pipeline: '35 (Hot Leads)', categoryId: '35', stageId: 'C35:17' }, // ვერშედგა კონტაქტი
-];
+// Report definitions. `nocontact` is the original report — unchanged.
+const REPORTS = {
+  nocontact: {
+    label: 'ვერ დავუკავშირდი',
+    targets: [
+      { type: 'Sale', pipeline: '0 (Sale Leads)', categoryId: '0',  stageId: '7' },
+      { type: 'Hot',  pipeline: '35 (Hot Leads)', categoryId: '35', stageId: 'C35:FINAL_INVOICE' },
+      { type: 'Hot',  pipeline: '35 (Hot Leads)', categoryId: '35', stageId: 'C35:17' }, // ვერშედგა კონტაქტი
+    ],
+    currentStages: ['7','C35:FINAL_INVOICE','C35:17'],
+  },
+  interested: {
+    label: 'დაინტერესებული',
+    targets: [
+      { type: 'Sale', pipeline: '0 (Sale Leads)', categoryId: '0',  stageId: '8' },
+      { type: 'Hot',  pipeline: '35 (Hot Leads)', categoryId: '35', stageId: 'C35:WON' },
+    ],
+    currentStages: ['8','C35:WON'],
+  },
+};
 const STAGE_ENTITIES = ['DEAL_STAGE', 'DEAL_STAGE_35'];
 const DEAL_SELECT = ['ID','TITLE','CATEGORY_ID','STAGE_ID','DATE_CREATE','CONTACT_ID','COMPANY_ID','UF_CRM_1700569256804'];
 
@@ -84,6 +99,11 @@ module.exports = async (req, res) => {
     const from = (req.query && req.query.from) || `${day}T00:00:00`;
     const to   = (req.query && req.query.to)   || `${day}T23:59:59`;
 
+    // which report? default = the original "ვერ დავუკავშირდი" one
+    const reportKey = (req.query && req.query.report) || 'nocontact';
+    const rep = REPORTS[reportKey];
+    if(!rep) return res.status(400).json({ error: 'უცნობი რეპორტი: ' + reportKey });
+
     // 1) stage-name map (for current-stage resolution) — one call per entity
     const stageName = {};
     for(const ent of STAGE_ENTITIES){
@@ -97,7 +117,7 @@ module.exports = async (req, res) => {
 
     // 2) who entered the target stage in range (date filter basis)
     const moved = {};
-    for(const t of TARGETS){
+    for(const t of rep.targets){
       const items = await stageHistAll({
         entityTypeId: 2,
         filter: { CATEGORY_ID: t.categoryId, STAGE_ID: t.stageId, '>=CREATED_TIME': from, '<=CREATED_TIME': to },
@@ -111,7 +131,7 @@ module.exports = async (req, res) => {
     }
     const dealIds = Object.keys(moved);
     if(dealIds.length === 0){
-      return res.status(200).json({ from, to, count:0, hot:0, sale:0, rows:[] });
+      return res.status(200).json({ report:reportKey, label:rep.label, from, to, count:0, hot:0, sale:0, rows:[] });
     }
 
     // 3) deal details (current stage / client refs / create date) — batched
@@ -169,8 +189,8 @@ module.exports = async (req, res) => {
       });
     }));
 
-    // 6) build rows — keep ONLY deals whose CURRENT stage is still "ვერ დავუკავშირდი"
-    const TARGET_STAGES = new Set(['7','C35:FINAL_INVOICE','C35:17']);
+    // 6) build rows — keep ONLY deals whose CURRENT stage is still one of this report's stages
+    const TARGET_STAGES = new Set(rep.currentStages);
     const rows = Object.keys(deals)
       .filter(id => TARGET_STAGES.has(String(deals[id].STAGE_ID)))
       .sort((a,b)=>(+a)-(+b)).map(id => {
@@ -197,7 +217,7 @@ module.exports = async (req, res) => {
     const hot  = rows.filter(r=>r.type==='Hot').length;
     const sale = rows.filter(r=>r.type==='Sale').length;
     res.setHeader('cache-control','no-store');
-    return res.status(200).json({ from, to, count:rows.length, hot, sale, rows });
+    return res.status(200).json({ report:reportKey, label:rep.label, from, to, count:rows.length, hot, sale, rows });
   }catch(e){
     return res.status(500).json({ error: String(e && e.message || e) });
   }
