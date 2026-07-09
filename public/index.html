@@ -121,8 +121,14 @@ let currentRows = [];
 let PIN = sessionStorage.getItem('archi_pin') || '';
 let REPORT = 'nocontact';
 const REPORT_META = {
-  nocontact:  { label:'ვერ დავუკავშირდი', file:'ver_davukavshirdi' },
-  interested: { label:'დაინტერესებული',   file:'dainteresebuli' },
+  nocontact: {
+    label:'ვერ დავუკავშირდი', file:'ver_davukavshirdi',
+    sub:'დილები, რომლებიც მითითებულ თარიღში გადავიდნენ ეტაპზე „ვერ დავუკავშირდი“ და <b>ახლაც იქ არიან</b> (Sale + Hot).'
+  },
+  interested: {
+    label:'დაინტერესებული', file:'dainteresebuli',
+    sub:'დილები, რომლებიც მითითებულ თარიღში <b>მოხვდნენ</b> ეტაპზე „დაინტერესებული“ — <b>მიუხედავად იმისა, ახლა რომელ ეტაპზე არიან</b> (თუნდაც JUNK). მიმდინარე ეტაპი ცხრილშია.'
+  },
 };
 
 // ---- PIN gate ----
@@ -300,10 +306,9 @@ function clearResults(){
   msg('');
 }
 function applyReport(){
-  const label = REPORT_META[REPORT].label;
-  document.getElementById('title').textContent = `Archi CRM — „${label}“ ლიდები`;
-  document.getElementById('sub').innerHTML =
-    `დილები, რომლებიც მითითებულ თარიღში გადავიდნენ ეტაპზე „${label}“ და <b>ახლაც იქ არიან</b> (Sale + Hot). სტრიქონზე დაჭერით — დილი იხსნება CRM-ში.`;
+  const meta = REPORT_META[REPORT];
+  document.getElementById('title').textContent = `Archi CRM — „${meta.label}“ ლიდები`;
+  document.getElementById('sub').innerHTML = meta.sub + ' სტრიქონზე დაჭერით — დილი იხსნება CRM-ში.';
 }
 document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
   if(tab.classList.contains('active')) return;

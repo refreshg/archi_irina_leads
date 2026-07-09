@@ -19,6 +19,7 @@ const REPORTS = {
       { type: 'Hot',  pipeline: '35 (Hot Leads)', categoryId: '35', stageId: 'C35:17' }, // ვერშედგა კონტაქტი
     ],
     currentStages: ['7','C35:FINAL_INVOICE','C35:17'],
+    keepOnlyCurrent: true,   // only deals STILL sitting in the stage
   },
   interested: {
     label: 'დაინტერესებული',
@@ -27,6 +28,7 @@ const REPORTS = {
       { type: 'Hot',  pipeline: '35 (Hot Leads)', categoryId: '35', stageId: 'C35:WON' },
     ],
     currentStages: ['8','C35:WON'],
+    keepOnlyCurrent: false,  // everyone who ENTERED the stage, wherever they are now (even JUNK)
   },
 };
 const STAGE_ENTITIES = ['DEAL_STAGE', 'DEAL_STAGE_35'];
@@ -112,16 +114,19 @@ module.exports = async (req, res) => {
     const rep = REPORTS[reportKey];
     if(!rep) return res.status(400).json({ error: 'უცნობი რეპორტი: ' + reportKey });
 
-    // 1) stage-name map (for current-stage resolution) — one call per entity
+    // 1) stage-name map (for current-stage resolution) — loaded lazily per entity,
+    //    because deals may have moved on into any other pipeline (e.g. JUNK).
     const stageName = {};
-    for(const ent of STAGE_ENTITIES){
+    const loadedEnts = new Set();
+    const entityOf = (cat) => String(cat) === '0' ? 'DEAL_STAGE' : `DEAL_STAGE_${cat}`;
+    async function loadStages(ent){
+      if(loadedEnts.has(ent)) return;
+      loadedEnts.add(ent);
       const statuses = await listAll(STAT,'crm.status.list',{ filter:{ ENTITY_ID: ent } });
       for(const s of statuses) stageName[`${s.ENTITY_ID}|${s.STATUS_ID}`] = s.NAME;
     }
-    const resolveStage = (cat, stage) => {
-      const ent = String(cat) === '0' ? 'DEAL_STAGE' : `DEAL_STAGE_${cat}`;
-      return stageName[`${ent}|${stage}`] || stage;
-    };
+    for(const ent of STAGE_ENTITIES) await loadStages(ent);
+    const resolveStage = (cat, stage) => stageName[`${entityOf(cat)}|${stage}`] || stage;
 
     // 2a) pre-flight: cheap count first (1 call per stage) so a too-wide range
     //     fails fast with a clear message instead of timing out mid-pagination.
@@ -222,10 +227,15 @@ module.exports = async (req, res) => {
       });
     });
 
-    // 6) build rows — keep ONLY deals whose CURRENT stage is still one of this report's stages
+    // 5b) deals may now sit in other pipelines — load those stage names too
+    for(const ent of new Set(Object.values(deals).map(d => entityOf(d.CATEGORY_ID)))) await loadStages(ent);
+
+    // 6) build rows.
+    //    keepOnlyCurrent -> keep only deals STILL in the stage.
+    //    otherwise       -> keep everyone who ENTERED the stage in range, wherever they are now.
     const TARGET_STAGES = new Set(rep.currentStages);
     const rows = Object.keys(deals)
-      .filter(id => TARGET_STAGES.has(String(deals[id].STAGE_ID)))
+      .filter(id => !rep.keepOnlyCurrent || TARGET_STAGES.has(String(deals[id].STAGE_ID)))
       .sort((a,b)=>(+a)-(+b)).map(id => {
       const d = deals[id];
       let client='', phone='';
